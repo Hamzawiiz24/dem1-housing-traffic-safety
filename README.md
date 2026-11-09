@@ -3,7 +3,7 @@
 A data engineering and visualization project that tests whether the NYC ZIP codes with the most affordable housing also have the most serious traffic crashes.
 
 **Course:** Data Engineering and Visualization, Winter Semester 2026 (Milestone 1)
-**Live website:** `<add Render URL>` · **Repository:** `<add GitHub URL>`
+**Live website:** `https://dem1-housing-traffic-safety.onrender.com` · **Repository:** `https://github.com/Hamzawiiz24/dem1-housing-traffic-safety`
 
 ## Research question
 
@@ -104,9 +104,9 @@ The free tier sleeps after 15 minutes of inactivity, so the first page load can 
 
 | Member | Contribution | RQs / charts |
 |---|---|---|
-| [Member 1 Name] | Dataset selection and loading, column standardisation, EDA, housing cleaning (comma fix, missing values, duplicates, outliers) | RQ1, RQ2 / Charts 1, 2 |
-| [Member 2 Name] | SIRTA cleaning, nearest-neighbour ZIP recovery and validation, aggregation, outer join, post-integration cleaning | RQ3, RQ4 / Charts 3, 4 |
-| [Member 3 Name] | Borough robustness table, correlation analysis, year × borough rate analysis, share comparison | RQ5, RQ6 / Charts 5, 8 |
-| [Member 4 Name] | ZIP centroids, map and spatial overlap analysis, housing-group trend analysis | RQ7, RQ8 / Charts 6, 7 |
-| [Member 5 Name] | Income-mix and construction-type analysis, Dash website, README, Render deployment | RQ9, RQ10 / Charts 9, 10 |
-| [Member 6 Name] | Time-of-day analysis, housing-delivery vs crash-trend analysis, fatal-crash coverage check | RQ11, RQ12 / Charts 11, 12 |
+| [Hamza Mohamed | Dataset selection and loading, column standardisation, EDA, housing cleaning (comma fix, missing values, duplicates, outliers) | RQ1, RQ2 / Charts 1, 2 |
+| [Kenzy Ehab] | SIRTA cleaning, nearest-neighbour ZIP recovery and validation, aggregation, outer join, post-integration cleaning | RQ3, RQ4 / Charts 3, 4 |
+| [Abduallah osama] | Borough robustness table, correlation analysis, year × borough rate analysis, share comparison | RQ5, RQ6 / Charts 5, 8 |
+| [Jana Omara] | ZIP centroids, map and spatial overlap analysis, housing-group trend analysis | RQ7, RQ8 / Charts 6, 7 |
+| [Hazem Shehab] | Income-mix and construction-type analysis, Dash website, README, Render deployment | RQ9, RQ10 / Charts 9, 10 |
+| [Eyad Tarek] | Time-of-day analysis, housing-delivery vs crash-trend analysis, fatal-crash coverage check | RQ11, RQ12 / Charts 11, 12 |
