@@ -5,6 +5,8 @@ Data files (produced by DEm1_revised.ipynb):
   merged_zip.csv         one row per ZIP: borough, centroid, totals (used for ZIP attributes)
   housing_zip_type.csv   affordable housing per ZIP x construction type  -> housing filter
   crashes_zip_year.csv   serious-injury crashes per ZIP x year           -> transport filter
+  crashes_zip_hour.csv   crashes per ZIP x year x hour of day            -> Chart 11
+  housing_completed_zip_type.csv  units completed 2022-2025 per ZIP x type -> Chart 12
 
 Run locally:  python app.py         Deploy (Render):  gunicorn app:server
 """
@@ -35,6 +37,8 @@ TEMPLATE = 'plotly_white'
 zip_info = pd.read_csv('merged_zip.csv', dtype={'postcode': str})
 housing_type = pd.read_csv('housing_zip_type.csv', dtype={'postcode': str})
 crashes_year = pd.read_csv('crashes_zip_year.csv', dtype={'postcode': str})
+crashes_hour = pd.read_csv('crashes_zip_hour.csv', dtype={'postcode': str})
+housing_completed = pd.read_csv('housing_completed_zip_type.csv', dtype={'postcode': str})
 
 # A ZIP's dominant construction type is a fixed attribute (computed on all housing,
 # so it does not change when the construction-type filter is applied)
@@ -259,6 +263,9 @@ app.layout = html.Div(
             grid(chart_card('chart8', 'RQ6 · Is each borough\'s share of crashes proportional to its share of units?'),
                  chart_card('chart9', 'RQ9 · Do ZIPs serving the lowest incomes have higher crash rates?')),
             grid(chart_card('chart10', 'RQ10 · New construction vs. preservation - different crash rates?')),
+            html.H2('4. When, and did new housing change anything?', style={'fontSize': '20px'}),
+            grid(chart_card('chart11', 'RQ11 · Do crashes in high-housing ZIPs happen at different times of day?'),
+                 chart_card('chart12', 'RQ12 · Did ZIPs that received the most new housing (2022-2025) see crashes rise faster?')),
         ]),
 
         # ---- Story ----
@@ -270,7 +277,7 @@ app.layout = html.Div(
 # Callback: Generate Report -> parse search, update filters, rebuild all charts + story
 # ---------------------------------------------------------------
 @app.callback(
-    [Output(f'chart{i}', 'figure') for i in range(1, 11)] +
+    [Output(f'chart{i}', 'figure') for i in range(1, 13)] +
     [Output('story-section', 'children'), Output('status', 'children'),
      Output('borough-dd', 'value'), Output('ctype-dd', 'value'),
      Output('year-dd', 'value'), Output('metric-dd', 'value')],
@@ -304,7 +311,7 @@ def generate_report(n_clicks, borough, ctype, year, metric, search):
         empty = placeholder('No data matches the current filters')
         story = html.Div([html.H3('No results'),
                           html.P('Try a different borough, year, housing type or search.')])
-        return [empty] * 10 + [story, status, borough, ctype, year, metric]
+        return [empty] * 12 + [story, status, borough, ctype, year, metric]
 
     hz = d[d['counted_units'] > 0]
     rated = d[d['rate'].notna()]
@@ -476,7 +483,76 @@ def generate_report(n_clicks, borough, ctype, year, metric, search):
         fig.update_layout(showlegend=False)
         return styled(fig)
 
-    figs = [safe(f, f'Chart {i}') for i, f in enumerate([c1, c2, c3, c4, c5, c6, c7, c8, c9, c10], 1)]
+    # ---- Chart 11: hour-of-day profile, high-housing ZIPs vs all other ZIPs ----
+    def c11():
+        has = d['counted_units'] > 0
+        if has.sum() < 3:
+            return placeholder('Chart 11 - needs at least 3 ZIPs with affordable housing')
+        cut = d.loc[has, 'counted_units'].quantile(2 / 3)            # top third = high housing
+        grp = pd.Series(np.where(d['counted_units'] >= cut, 'High-housing ZIPs (top third)',
+                                 'All other ZIPs'), index=d['postcode'])
+        c = crashes_hour[crashes_hour['postcode'].isin(d['postcode'])]
+        if year != 'All':
+            c = c[c['year'] == int(year)]
+        c = c.assign(group=c['postcode'].map(grp))
+        t = c.groupby(['group', 'hour'])[metric].sum().reset_index()
+        t['pct'] = t[metric] / t.groupby('group')[metric].transform('sum') * 100
+        if t['group'].nunique() < 2 or t[metric].sum() == 0:
+            return placeholder('Chart 11 - not enough crashes to compare groups')
+        # chi-square test on 5 time periods
+        t['period'] = pd.cut(t['hour'], [-1, 5, 9, 15, 19, 23],
+                             labels=['Night', 'AM peak', 'Midday', 'PM peak', 'Evening'])
+        tab = t.pivot_table(index='group', columns='period', values=metric, aggfunc='sum', observed=False)
+        try:
+            p = stats.chi2_contingency(tab.fillna(0) + 0.5)[1]
+            sub = f'Chi-square p = {p:.3f} · each line sums to 100 %'
+        except ValueError:
+            sub = 'each line sums to 100 %'
+        night = t[(t['hour'] >= 20) | (t['hour'] <= 5)].groupby('group')['pct'].sum()
+        sub += ' · share 20:00-05:59: ' + ', '.join(f'{k.split(" (")[0]} {v:.0f} %' for k, v in night.items())
+        fig = px.line(t, x='hour', y='pct', color='group', markers=True,
+                      title=f'Chart 11 - Hour of day of {mlabel.lower()} ({period})<br><sup>{sub}</sup>',
+                      labels={'hour': 'Hour of day (0 = midnight)', 'pct': 'Share of the group (%)',
+                              'group': ''})
+        fig.update_layout(xaxis=dict(dtick=2), legend=dict(orientation='h', y=-0.25))
+        return styled(fig)
+
+    # ---- Chart 12: change 2022 -> 2025 by units completed 2022-2025 (ignores the year filter) ----
+    def c12():
+        hc = housing_completed if ctype == 'All' else housing_completed[housing_completed['construction_type'] == ctype]
+        added = hc.groupby('postcode')['units_completed'].sum()
+        cy = crashes_year[crashes_year['postcode'].isin(d['postcode'])]
+        cy = cy.pivot_table(index='postcode', columns='year', values=metric, aggfunc='sum')
+        t = d[['postcode']].copy()
+        t['added'] = t['postcode'].map(added).fillna(0)
+        t['y2022'] = t['postcode'].map(cy.get(2022, pd.Series(dtype=float))).fillna(0)
+        t['y2025'] = t['postcode'].map(cy.get(2025, pd.Series(dtype=float))).fillna(0)
+        min_events = 10 if metric != 'fatalities' else 2
+        t = t[(t['y2022'] + t['y2025']) >= min_events]
+        if len(t) < 3 or (t['added'] > 0).sum() < 2:
+            return placeholder('Chart 12 - not enough ZIPs with new housing in this selection')
+        med = t.loc[t['added'] > 0, 'added'].median()
+        labels = ['No new units', f'Some new units (< {med:,.0f})', f'Many new units (>= {med:,.0f})']
+        t['group'] = np.select([t['added'] == 0, t['added'] < med], labels[:2], default=labels[2])
+        g = t.groupby('group').agg(zips=('postcode', 'count'), y2022=('y2022', 'sum'),
+                                   y2025=('y2025', 'sum')).reset_index()
+        g = g[g['y2022'] > 0]
+        g['pct_change'] = (g['y2025'] / g['y2022'] - 1) * 100
+        txt, _ = spearman_text(t['added'], t['y2025'] - t['y2022'])
+        fig = px.bar(g, x='group', y='pct_change', color='group', text_auto='.1f',
+                     category_orders={'group': labels},
+                     hover_data={'zips': True, 'y2022': ':,', 'y2025': ':,'},
+                     title=f'Chart 12 - Change in {mlabel.lower()} 2022 -> 2025, by affordable units completed '
+                           f'2022-2025<br><sup>{txt} · fixed years: the crash-year filter does not apply</sup>',
+                     labels={'group': 'Affordable units completed in the ZIP, 2022-2025',
+                             'pct_change': f'Change in {mlabel.lower()}, 2022 to 2025 (%)',
+                             'zips': 'ZIPs', 'y2022': '2022', 'y2025': '2025'})
+        fig.add_hline(y=0, line_color='black')
+        fig.update_layout(showlegend=False)
+        return styled(fig)
+
+    figs = [safe(f, f'Chart {i}') for i, f in
+            enumerate([c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12], 1)]
 
     # ---- Story (live numbers for the current selection + fixed findings from the notebook) ----
     top = d.nlargest(1, metric).iloc[0]
@@ -523,6 +599,9 @@ def generate_report(n_clicks, borough, ctype, year, metric, search):
                     'have very high housing but below-median crashes.'),
             html.Li('Income mix does not predict crash rate (rho = -0.05), and the apparent new-construction '
                     'effect disappears within each borough.'),
+            html.Li('Timing: high-housing ZIPs have a larger share of serious crashes after dark (37 % vs 33 %, '
+                    'p < 0.001), but ZIPs that received the most new housing in 2022-2025 did not see crashes '
+                    'rise faster (+3.6 % vs +18.7 % elsewhere).'),
         ]),
         html.H3('Limitations'),
         html.Ul([
@@ -532,6 +611,8 @@ def generate_report(n_clicks, borough, ctype, year, metric, search):
                     'its residents.'),
             html.Li('14 % of crashes could not be placed in a ZIP; housing data starts in 2014 but crash '
                     'data only in 2022; 2026 covers six months.'),
+            html.Li('Only 20 % of fatal crashes have coordinates, so ZIP-level fatality counts are undercounts '
+                    '- treat the Fatalities metric as indicative.'),
         ]),
         html.H3('Why it matters for NYC'),
         html.Ul([
