@@ -1,1 +1,109 @@
-This project examines whether neighborhoods with more affordable housing experience higher traffic safety burdens in New York City. Affordable Housing Production data (9,551 buildings) and SIRTA crash records (13,754 collisions) are cleaned, standardized to 5-digit ZIP codes, and joined at the ZIP level, producing a 155-row dataset across the five boroughs. Twelve visualizations — delivered both as static charts in a Jupyter notebook and as an interactive Dash dashboard — test relationships between housing volume, crash volume, crash severity, and rate-normalized crash burden per 1,000 affordable units. The central finding is that affordable housing volume does not predict crash volume: ZIPs with the highest crash counts have some of the lowest housing stock, and crash severity is nearly uniform across boroughs, meaning volume, not lethality, is what differentiates them.
+# NYC Housing × Transportation: Affordable Housing and Serious Traffic Crashes
+
+A data engineering and visualization project that tests whether the NYC ZIP codes with the most affordable housing also have the most serious traffic crashes.
+
+**Course:** Data Engineering and Visualization, Winter Semester 2026 (Milestone 1)
+**Live website:** `<add Render URL>` · **Repository:** `<add GitHub URL>`
+
+## Research question
+
+Do NYC neighbourhoods with the most affordable housing also experience the most serious traffic crashes? Does the answer change by borough, over time, or with the type of housing built? The notebook breaks this into 10 sub-questions (RQ1–RQ10), with one chart each.
+
+## Datasets
+
+| Domain | Dataset | ID | Rows | Columns | Link |
+|---|---|---|---|---|---|
+| Housing | Affordable Housing Production by Building | `hg8x-zxpr` | 9,551 | 41 | https://data.cityofnewyork.us/d/hg8x-zxpr |
+| Transportation | SIRTA (Serious Injury Response, Tracking & Analysis) | `xeqp-qz8h` | 13,754 | 23 | https://data.cityofnewyork.us/d/xeqp-qz8h |
+
+## Cleaning and integration
+
+**Housing**
+- Parsed `Total Units` values that contain commas (7 large buildings, 7,866 units, were being lost).
+- Used `All Counted Units` as the affordable-unit count. `Total Units` includes market-rate apartments.
+- Imputed empty income bands as 0. With blanks set to 0, the bands sum exactly to the counted units.
+- Dropped confidential rows that have no address (1.0 % of units).
+- Deduplicated buildings that appear in several projects (10,130 double-counted units removed).
+
+**SIRTA**
+- Dropped 444 empty rows.
+- Treated the placeholder ZIP `10000` as missing.
+- Recovered 3,391 missing ZIPs from coordinates by nearest-neighbour matching (93.8 % accurate in validation), raising ZIP coverage from 60 % to 86 %.
+- Flagged outliers with domain rules; the IQR rule doesn't work on this data.
+
+**Integration**
+- Aggregated both datasets to ZIP and joined them with a full outer join, giving 189 ZIPs. The 31 ZIPs with crashes but no affordable housing are kept as a comparison group.
+- After the join: filled structural zeros, fixed data types, and set each ZIP's borough by majority vote across both datasets.
+- Crash rates are only computed for ZIPs with at least 100 affordable units.
+
+## Key findings
+
+1. **Housing and crashes co-locate.** Spearman ρ = 0.52 across 158 ZIPs. Half of the 20 highest-crash ZIPs are also top-20 housing ZIPs (south Bronx, East New York, Brownsville).
+2. **The burden per unit is uneven.** Staten Island (71) and Queens (66) have about 3× the Bronx's 22 serious crashes per 1,000 affordable units. Queens' rate rose 39 % from 2022 to 2025.
+3. **Large edge-of-city complexes are the exception.** Co-op City, Starrett City and Far Rockaway have very high housing but below-median crashes.
+4. **Housing type doesn't predict crash rate.** Income mix has no effect (ρ = −0.05). New construction vs preservation shows no difference within any borough; the citywide difference is a borough-composition effect.
+
+**Limitations:** this is correlation, not causation, because population, traffic volume and street design aren't in the data. Rates are per affordable unit, not per resident. 14 % of crashes can't be placed in a ZIP. The time windows only partly overlap.
+
+## Repository contents
+
+| File | Purpose |
+|---|---|
+| `DEm1_revised.ipynb` | Full notebook: dataset overview, EDA, cleaning, integration, post-integration cleaning, correlation analysis, 10 visualizations, story, prompts |
+| `app.py` | Dash website: 4 dropdown filters, search box, Generate Report button, 10 charts, live story section |
+| `housing_raw.csv`, `sirta_raw.csv` | Raw downloads (input to the notebook) |
+| `merged_zip.csv` | Integrated ZIP-level table (189 rows) |
+| `merged_boro.csv` | Borough-level robustness table (built from the same ZIP sample) |
+| `housing_zip_type.csv` | Affordable housing per ZIP × construction type (powers the housing-type filter) |
+| `crashes_zip_year.csv` | Crashes per ZIP × year (powers the crash-year filter) |
+| `chart01–10_*.html` | Interactive chart exports (regenerated by the notebook) |
+| `requirements.txt`, `Procfile` | Dependencies and start command for deployment |
+
+## Website features
+
+- **Dropdown filters:** Borough; Housing type (New Construction / Preservation, from the housing dataset); Crash year (2022–2026, from the transportation dataset); Safety metric (crashes / fatalities / people injured).
+- **Search:** type e.g. `Brooklyn 2022 new buildings`, `Queens fatalities` or `11207 11212`. The search recognises boroughs, years, housing types, metrics and ZIP codes, sets the matching filters, and lists any words it ignored.
+- **Generate Report:** rebuilds all 10 charts and the story section for the active filters.
+- **Charts:** scatter, bar, ranked bar, heatmap, map, line and box plots, all with hover and zoom.
+
+## Setup (local)
+
+```bash
+git clone <repository URL>
+cd <repository folder>
+python -m venv .venv
+# Windows: .venv\Scripts\activate     macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+
+# 1) Reproduce the data and charts: open DEm1_revised.ipynb and Run All
+#    (set DOWNLOAD = True in the loading cell to fetch fresh data from NYC Open Data)
+# 2) Start the website
+python app.py            # then open http://127.0.0.1:8050
+```
+
+## Deployment (Render, free tier)
+
+1. Push the repository to GitHub, including `app.py`, `requirements.txt`, `Procfile`, `merged_zip.csv`, `housing_zip_type.csv` and `crashes_zip_year.csv`.
+2. On [render.com](https://render.com), choose **New → Web Service** and connect the repository.
+3. Use these settings:
+   - **Runtime:** Python 3
+   - **Build command:** `pip install -r requirements.txt`
+   - **Start command:** `gunicorn app:server`
+   - **Instance type:** Free
+   - Optional environment variable: `PYTHON_VERSION=3.12.7`
+4. Deploy, open the `.onrender.com` URL, and test every filter, the search box and Generate Report.
+5. Paste the URL at the top of this README and of the notebook.
+
+The free tier sleeps after 15 minutes of inactivity, so the first page load can take about 30–60 seconds.
+
+## Team contributions
+
+> Replace the names and adjust the tasks to match what each person actually did.
+
+| Member | Contribution | RQs / charts |
+|---|---|---|
+| [Member 1 Name] | Dataset selection and loading, column standardisation, EDA, housing cleaning (comma fix, missing values, duplicates, outliers) | RQ1, RQ2 / Charts 1, 2 |
+| [Member 2 Name] | SIRTA cleaning, nearest-neighbour ZIP recovery and validation, aggregation, outer join, post-integration cleaning | RQ3, RQ4 / Charts 3, 4 |
+| [Member 3 Name] | Borough robustness table, correlation analysis, year × borough rate analysis, share comparison | RQ5, RQ6 / Charts 5, 8 |
+| [Member 4 Name] | ZIP centroids, map and spatial overlap analysis, housing-group trend analysis | RQ7, RQ8 / Charts 6, 7 |
+| [Member 5 Name] | Income-mix and construction-type analysis, Dash website, README, Render deployment | RQ9, RQ10 / Charts 9, 10 |
